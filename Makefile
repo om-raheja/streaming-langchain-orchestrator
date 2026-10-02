@@ -1,4 +1,4 @@
-.PHONY: install run run-demo mock test cov lint check docker
+.PHONY: install run run-gemini run-demo demo mock demo-gemini test cov lint check docker
 
 install:
 	python3 -m venv .venv
@@ -6,6 +6,10 @@ install:
 
 run:
 	.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Gemini requires GEMINI_API_KEY in .env (or the environment) — never in code
+run-gemini:
+	LLM_PROVIDER=gemini .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # Offline demo: mock OpenAI-compatible provider + orchestrator + timestamped client
 mock:
@@ -17,6 +21,11 @@ run-demo:
 
 demo:
 	.venv/bin/python scripts/sse_client.py --url http://127.0.0.1:8000/ask --query "tell me a joke about backpressure"
+	.venv/bin/python scripts/sse_client.py --url http://127.0.0.1:8000/ask --query "what is 15% of 240"
+
+# Requires `make run-gemini` in another shell (uses free-tier quota: 20 req/day)
+demo-gemini:
+	.venv/bin/python scripts/sse_client.py --url http://127.0.0.1:8000/ask --query "In one sentence, what is backpressure?"
 	.venv/bin/python scripts/sse_client.py --url http://127.0.0.1:8000/ask --query "what is 15% of 240"
 
 test:

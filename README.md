@@ -64,6 +64,40 @@ OPENAI_API_KEY=mock-key OPENAI_BASE_URL=http://127.0.0.1:8124/v1 \
 python scripts/sse_client.py --query "tell me a joke about backpressure"
 ```
 
+### Using Gemini instead of OpenAI
+
+The provider is chosen by environment variables only — the key never appears
+in code. Put it in the git-ignored `.env`:
+
+```bash
+LLM_PROVIDER=gemini                 # auto | openai | gemini
+GEMINI_API_KEY=...                  # https://aistudio.google.com/apikey
+# GOOGLE_API_KEY is accepted as an alias
+GENERAL_MODEL=gemini-2.5-flash      # optional: route/general/math defaults
+ROUTER_TIMEOUT_S=10
+STREAM_STALL_TIMEOUT_S=45
+```
+
+```bash
+make run-gemini                     # uvicorn with LLM_PROVIDER=gemini
+make demo-gemini                    # timestamped SSE run against it
+```
+
+`/health` then reports `"provider":"gemini"`, and the LangChain chains run on
+`ChatGoogleGenerativeAI` (native JSON-schema structured output for the router)
+instead of `ChatOpenAI`.
+
+**Live tests with a real key** (skipped automatically when no key is set):
+
+```bash
+GEMINI_API_KEY=... pytest tests/test_live_provider.py -v
+```
+
+> Free-tier keys are limited to ~20 requests/day per model. When the quota is
+> exhausted the live tests **skip with the provider's 429 message** rather than
+> failing — an exhausted quota is an environment condition, not a defect. The
+> other 101 tests stay fully offline.
+
 ---
 
 ## The endpoint
@@ -210,9 +244,10 @@ request (routing + generation), not by the streaming layer.
 ## Security
 
 * **Zero hardcoded credentials.** The credential enters the process at exactly
-  one point: `os.getenv("OPENAI_API_KEY")` in `app/config.py`, optionally
-  seeded from a git-ignored `.env` (`python-dotenv`, never overriding real
-  process env vars, so Docker/K8s secrets win).
+  one point: `os.getenv("OPENAI_API_KEY")` or `os.getenv("GEMINI_API_KEY")`
+  in `app/config.py`, optionally seeded from a git-ignored `.env`
+  (`python-dotenv`, never overriding real process env vars, so Docker/K8s
+  secrets win).
 * `tests/test_security.py` fails the build if any file under `app/` contains a
   key-shaped literal, and asserts `.env` is git-ignored and `.env.example`
   holds only a placeholder.
@@ -240,8 +275,8 @@ This is what lets the test-suite — including the SSE contract tests — run wi
 ## Testing
 
 ```bash
-pytest                        # 92 tests, ~5s, no network needed
-pytest --cov=app              # 92% line coverage
+pytest                        # 103 tests, ~8s, no network needed
+pytest --cov=app              # 93% line coverage
 ruff check app tests scripts  # lint clean
 ```
 
@@ -250,9 +285,11 @@ ruff check app tests scripts  # lint clean
 | `test_endpoint_sse.py` | SSE contract, headers, chunking, ids, validation, error frames, concurrency |
 | `test_router.py` | heuristic vs semantic routing, timeout + failure degradation |
 | `test_math_tool.py` | expression evaluation, NL extraction, sandbox escape attempts, resource bombs |
-| `test_security.py` | no hardcoded keys, env loading, redaction |
+| `test_security.py` | no hardcoded keys, env loading, redaction, hermetic `.env` isolation |
 | `test_lifecycle.py` | cancellation, offline modes, stall timeout |
 | `test_integration_provider.py` | **real `ChatOpenAI` client** against an in-process OpenAI-compatible mock (structured routing + streamed tokens) |
+| `test_gemini_provider.py` | provider resolution + **real `ChatGoogleGenerativeAI` client** against `scripts/mock_gemini.py` (Google `v1beta` wire format) |
+| `test_live_provider.py` | optional live smoke tests; run only with a real key, skip on quota |
 
 ---
 
@@ -275,7 +312,7 @@ scripts/
 ├── mock_openai.py              # offline OpenAI-compatible provider
 ├── sse_client.py               # timestamped SSE demo client
 └── load_test.py                # concurrent SSE load probe (latency percentiles)
-tests/                          # 92 tests, pytest-asyncio
+tests/                          # 103 tests, pytest-asyncio
 ```
 
 ---
@@ -288,9 +325,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 docker build -t orchestrator . && docker run -p 8000:8000 --env-file .env orchestrator
 ```
 
-Configuration (all optional except `OPENAI_API_KEY` for live model output):
-`ROUTE_MODEL`, `GENERAL_MODEL`, `MATH_MODEL`, `MODEL_TEMPERATURE`,
-`ROUTER_TIMEOUT_S`, `STREAM_STALL_TIMEOUT_S`, `MAX_QUERY_CHARS`, `LOG_LEVEL`.
+Configuration (all optional except a provider key — `OPENAI_API_KEY` or
+`GEMINI_API_KEY` — for live model output): `LLM_PROVIDER`, `ROUTE_MODEL`,
+`GENERAL_MODEL`, `MATH_MODEL`, `MODEL_TEMPERATURE`, `ROUTER_TIMEOUT_S`,
+`STREAM_STALL_TIMEOUT_S`, `MAX_QUERY_CHARS`, `GOOGLE_BASE_URL`, `LOG_LEVEL`.
 
 > Python 3.11+ is required (`asyncio.timeout`). Verified on 3.12.
 
