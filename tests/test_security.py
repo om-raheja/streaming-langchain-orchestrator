@@ -50,7 +50,7 @@ def test_gitignore_excludes_env_file():
     assert ".env" in gitignore
 
 
-def test_settings_load_without_key_by_default(monkeypatch):
+def test_settings_load_without_key_by_default(monkeypatch, no_dotenv):
     for name in ("OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "LLM_PROVIDER"):
         monkeypatch.delenv(name, raising=False)
     settings = load_settings()

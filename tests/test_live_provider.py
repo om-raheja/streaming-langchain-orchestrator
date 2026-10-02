@@ -7,6 +7,12 @@ offline runs never touch the network:
     OPENAI_API_KEY=sk-...    pytest tests/test_live_provider.py -v
 
 These are intentionally small (three queries) to keep quota use minimal.
+
+Free-tier keys are throttled hard (e.g. 20 requests/day per model), so a
+provider-side ``429 RESOURCE_EXHAUSTED``/``503`` skips the test with an
+explanation instead of failing it — an exhausted quota is an environment
+condition, not a regression in this codebase. Real assertion failures and
+non-quota provider errors still fail loudly.
 """
 
 from __future__ import annotations
@@ -37,6 +43,51 @@ def live_orchestrator() -> Orchestrator:
     return Orchestrator.from_settings(settings)
 
 
+_QUOTA_MARKERS = (
+    "429",
+    "503",
+    "RESOURCE_EXHAUSTED",
+    "UNAVAILABLE",
+    "quota",
+    "rate limit",
+    "rate_limit",
+    "overloaded",
+)
+
+
+def _quota_related(message: str) -> bool:
+    """True when a provider error is throttling/availability, not a defect."""
+    lowered = message.lower()
+    return any(marker.lower() in lowered for marker in _QUOTA_MARKERS)
+
+
+async def _stream_events(orchestrator: Orchestrator, query: str) -> list[dict]:
+    """POST ``query`` and parse the SSE stream.
+
+    Skips the test if the provider throttles us (free-tier daily quota,
+    transient overload) either by raising out of the stream or by ending it
+    with an ``error`` frame; any other provider error is re-raised.
+    """
+    app = create_app(settings=orchestrator.settings, orchestrator=orchestrator)
+    try:
+        async with (
+            make_client(app) as client,
+            client.stream("POST", "/ask", json={"query": query}) as response,
+        ):
+            assert response.status_code == 200
+            events = await parse_sse(response)
+    except Exception as exc:
+        if _quota_related(str(exc)):
+            pytest.skip(f"provider throttled the request: {exc}")
+        raise
+
+    if events and events[-1]["event"] == "error":
+        message = str(events[-1]["data"].get("message", ""))
+        if _quota_related(message):
+            pytest.skip(f"provider throttled the request: {message}")
+    return events
+
+
 async def test_live_health_reports_active_provider(live_orchestrator):
     app = create_app(
         settings=live_orchestrator.settings, orchestrator=live_orchestrator
@@ -53,15 +104,7 @@ async def test_live_health_reports_active_provider(live_orchestrator):
 
 
 async def test_live_math_route_is_deterministic(live_orchestrator):
-    app = create_app(
-        settings=live_orchestrator.settings, orchestrator=live_orchestrator
-    )
-    async with (
-        make_client(app) as client,
-        client.stream("POST", "/ask", json={"query": "calculate 48 * 12"}) as response,
-    ):
-        assert response.status_code == 200
-        events = await parse_sse(response)
+    events = await _stream_events(live_orchestrator, "calculate 48 * 12")
 
     assert events[1]["data"]["route"] == "math"
     tool = next(e for e in events if e["event"] == "tool")["data"]
@@ -72,17 +115,9 @@ async def test_live_math_route_is_deterministic(live_orchestrator):
 
 
 async def test_live_general_route_streams_from_provider(live_orchestrator):
-    app = create_app(
-        settings=live_orchestrator.settings, orchestrator=live_orchestrator
+    events = await _stream_events(
+        live_orchestrator, "In one sentence, what is backpressure?"
     )
-    async with (
-        make_client(app) as client,
-        client.stream(
-            "POST", "/ask", json={"query": "In one sentence, what is backpressure?"}
-        ) as response,
-    ):
-        assert response.status_code == 200
-        events = await parse_sse(response)
 
     assert events[1]["data"]["route"] == "general"
     assert events[1]["data"]["source"] in {"heuristic", "llm", "fallback"}

@@ -39,7 +39,7 @@ PROVIDER_ENV = (
 # ---------------------------------------------------------------------------
 # Configuration / credential handling
 # ---------------------------------------------------------------------------
-def test_auto_prefers_openai_then_gemini(monkeypatch):
+def test_auto_prefers_openai_then_gemini(monkeypatch, no_dotenv):
     for name in PROVIDER_ENV:
         monkeypatch.delenv(name, raising=False)
 
@@ -60,7 +60,7 @@ def test_auto_prefers_openai_then_gemini(monkeypatch):
     assert load_settings().llm_provider == "openai"  # auto prefers openai
 
 
-def test_explicit_provider_and_google_api_key_alias(monkeypatch):
+def test_explicit_provider_and_google_api_key_alias(monkeypatch, no_dotenv):
     for name in PROVIDER_ENV:
         monkeypatch.delenv(name, raising=False)
 
@@ -77,7 +77,7 @@ def test_explicit_provider_and_google_api_key_alias(monkeypatch):
     assert load_settings().llm_provider == "openai"  # unknown -> safe default
 
 
-def test_openai_defaults_survive_when_openai_selected(monkeypatch):
+def test_openai_defaults_survive_when_openai_selected(monkeypatch, no_dotenv):
     for name in PROVIDER_ENV:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "some-openai-key")

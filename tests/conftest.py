@@ -64,6 +64,18 @@ def offline() -> Settings:
 
 
 @pytest.fixture
+def no_dotenv(monkeypatch, tmp_path):
+    """Run ``load_settings`` as if no ``.env`` existed.
+
+    Keeps credential tests hermetic: a developer's local ``.env`` (or CI
+    secret) must never change what these assertions expect.
+    """
+    from app import config as app_config
+
+    monkeypatch.setattr(app_config, "DOTENV_PATH", tmp_path / "missing.env")
+
+
+@pytest.fixture
 def make_app(offline: Settings):
     """Build an ASGI app wired to an orchestrator that uses fake models."""
 
