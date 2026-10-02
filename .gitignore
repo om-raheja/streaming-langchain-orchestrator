@@ -1,0 +1,22 @@
+# secrets
+.env
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+
+# tooling / ide
+.idea/
+.vscode/
+.DS_Store
+coverage.xml
